@@ -1,0 +1,811 @@
+<?php
+// БИБЛИОТЕКА XOWM ДЛЯ РАБОТЫ С XML ИНТЕРФЕЙСАМИ WEBMONEY [обновление - 28.08.2012]
+// Скопируйте и сохраните в файл .php, подключите его в свой скрипт
+// Здесь реализована работа с 14 из 20 XML-интерфейсов WebMoney:
+// X1, X2, X3, X4, X6, X7, X8, X9, X11, X14, X16, X18, X19, X20, X21, X22
+//
+// Статьи с описаниями XML-интерфейсов и реализованных здесь функций:
+// Общее описание, WMSigner - http://owebmoney.ru/xml1.shtml
+// X2, X6, X8, X11 - http://owebmoney.ru/xml2.shtml
+// X1, X3, X4, X9, X14, X16 - http://owebmoney.ru/articles/xml3.shtml
+// X7 - http://owebmoney.ru/articles/robots.shtml
+// X18 - http://owebmoney.ru/merchant.shtml#8
+// X19 - http://owebmoney.ru/articles/xml4.shtml
+// X20 - http://owebmoney.ru/articles/x20/
+// X21 - http://owebmoney.ru/articles/x21/
+// X22 - http://owebmoney.ru/articles/x22/
+//
+// Для работы этих функций необходимы библиотеки PHP: simplexml, iconv, curl
+// (c) Никита Сенченко, owebmoney.ru
+
+// БЛОК КОНСТАНТ
+$Global_WMID="XXXXXXXXXXXX";  // Ваш WMID
+$Path_Folder = "/home/site.ru/data/signer/"; // Путь на сервере к директории, в которой лежит .kwm
+$Path_Signer = "/home/site.ru/data/signer/wmsigner"; // Путь на сервере к WMSigner
+$Path_Certs="/home/site.ru/data/certs/WMunited.cer"; // Путь на сервере к файлу с корневыми сертификатами серверов WebMoney (скачать можно здесь - http://owebmoney.ru/files/WMunited.cer)
+
+// URL интерфейсов
+$XML_addr[1]="https://w3s.webmoney.ru/asp/XMLInvoice.asp";
+$XML_addr[2]="https://w3s.webmoney.ru/asp/XMLTrans.asp";
+$XML_addr[3]="https://w3s.webmoney.ru/asp/XMLOperations.asp";
+$XML_addr[4]="https://w3s.webmoney.ru/asp/XMLOutInvoices.asp";
+$XML_addr[5]="https://w3s.webmoney.ru/asp/XMLFinishProtect.asp";
+$XML_addr[6]="https://w3s.webmoney.ru/asp/XMLSendMsg.asp";
+$XML_addr[7]="https://w3s.webmoney.ru/asp/XMLClassicAuth.asp";
+$XML_addr[8]="https://w3s.webmoney.ru/asp/XMLFindWMPurseNew.asp";
+$XML_addr[9]="https://w3s.webmoney.ru/asp/XMLPurses.asp";
+$XML_addr[10]="https://w3s.webmoney.ru/asp/XMLInInvoices.asp";
+$XML_addr[11]="https://passport.webmoney.ru/asp/XMLGetWMPassport.asp";
+$XML_addr[13]="https://w3s.webmoney.ru/asp/XMLRejectProtect.asp";
+$XML_addr[14]="https://w3s.webmoney.ru/asp/XMLTransMoneyback.asp";
+$XML_addr[151]="https://w3s.webmoney.ru/asp/XMLTrustList.asp";
+$XML_addr[152]="https://w3s.webmoney.ru/asp/XMLTrustList2.asp";
+$XML_addr[153]="https://w3s.webmoney.ru/asp/XMLTrustSave2.asp";
+$XML_addr[16]="https://w3s.webmoney.ru/asp/XMLCreatePurse.asp";
+$XML_addr[171]="https://arbitrage.webmoney.ru/xml/X17_CreateContract.aspx";
+$XML_addr[172]="https://arbitrage.webmoney.ru/xml/X17_GetContractInfo.aspx";
+$XML_addr[18]="https://merchant.webmoney.ru/conf/xml/XMLTransGet.asp";
+$XML_addr[19]="https://apipassport.webmoney.ru/XMLCheckUser.aspx";
+$XML_addr[201]="https://merchant.webmoney.ru/conf/xml/XMLTransRequest.asp";
+$XML_addr[202]="https://merchant.webmoney.ru/conf/xml/XMLTransConfirm.asp";
+$XML_addr[211]="https://merchant.webmoney.ru/conf/xml/XMLTrustRequest.asp";
+$XML_addr[212]="https://merchant.webmoney.ru/conf/xml/XMLTrustConfirm.asp";
+$XML_addr[22]="https://merchant.webmoney.ru/conf/xml/XMLTransSave.asp";
+
+
+// ФУНКЦИЯ ФОРМИРУЕТ УНИКАЛЬНЫЙ УВЕЛИЧИВАЮЩИЙСЯ REQN
+function _GetReqn(){
+    $time=microtime();
+    $int=substr($time,11);
+    $flo=substr($time,2,5);
+    return $int.$flo;
+};
+
+
+// ФУНКЦИЯ ФОРМИРОВАНИЯ ПОДПИСИ
+// На входе: строка для подписи. На выходе: строка с результатом подписывания
+function _GetSign($inStr) { 
+	global $Path_Folder, $Path_Signer;
+	chdir($Path_Folder);
+	$descriptorspec = array(
+	0 => array("pipe", "r"),
+	1 => array("pipe", "w"),
+	2 => array("pipe", "r") );
+	$process = proc_open($Path_Signer, $descriptorspec, $pipes);
+	fwrite($pipes[0], "$inStr\004\r\n");
+	fclose($pipes[0]);
+	$s = fgets($pipes[1], 133);
+	fclose($pipes[1]);
+	$return_value = proc_close($process);
+	return $s;
+}
+
+
+// АЛЬТЕРНАТИВНАЯ ФУНКЦИЯ ПОДПИСИ ДЛЯ PHP НИЖЕ 4.3.0
+// На входе: строка для подписи. На выходе: строка с результатом подписывания
+function _GetSign2($inStr){
+	global $Path_Folder, $Path_Signer;
+	chdir($Path_Folder);
+	$PlanStr = "$inStr\004\r\n";
+	$fp = popen($Path_Signer, "r+");
+	fwrite($fp,$PlanStr);
+	$s = fgets($fp, 133);
+	pclose($fp);
+	return $s;
+}
+
+
+// ОТПРАВКА POST-ЗАПРОСА ЧЕРЕЗ CURL
+// На входе: URL для отправки и содержимое XML-запроса. На выходе: XML-ответ от WebMoney
+function _GetAnswer($address, $xml){
+	global $Path_Certs;
+	// Инициализируем сеанс CURL
+	$ch = curl_init($address);
+	// В выводе CURL http-заголовки не нужны
+	curl_setopt($ch, CURLOPT_HEADER, 0);
+	// Возвращать результат, а не выводить его в браузер
+	curl_setopt($ch, CURLOPT_RETURNTRANSFER,1);
+	// Метод http-запроса - POST
+	curl_setopt($ch, CURLOPT_POST,1);
+	// Что передаем?
+	curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
+	// Проверяем корневой сертификат сервера WebMoney
+	curl_setopt($ch, CURLOPT_CAINFO, $Path_Certs);
+	curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, TRUE);
+	// Выполняем запрос, ответ помещаем в переменную $result;
+	$result=curl_exec($ch);
+	// Раскомментировать следующую строку, чтобы посмотреть ошибки выполнения curl запроса
+	//	if(curl_errno($ch)) echo "Curl Error number='".curl_errno($ch)."' err desc='".curl_error($ch)."' \n"; 
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X1. ВЫПИСКА СЧЕТА.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'date'=>дата и время, 'wminvid'=>уникальный номер счета]
+function _WMXML1 ($orderid,$wmid,$purse,$amount,$desc,$address,$period,$expiration) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$desc=trim($desc); $address=trim($address); $amount=floatval($amount);
+	$rsign=_GetSign($orderid.$wmid.$purse.$amount.$desc.$address.$period.$expiration.$reqn);
+	$address=htmlspecialchars($address, ENT_QUOTES);
+	$desc=htmlspecialchars($desc, ENT_QUOTES);
+	$address=iconv("CP1251", "UTF-8", $address);
+	$desc=iconv("CP1251", "UTF-8", $desc);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<invoice>
+			<orderid>$orderid</orderid>
+			<customerwmid>$wmid</customerwmid>
+			<storepurse>$purse</storepurse>
+			<amount>$amount</amount>
+			<desc>$desc</desc>
+			<address>$address</address>
+			<period>$period</period>
+			<expiration>$expiration</expiration>
+		</invoice>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[1], $xml);
+	//echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['date']=strval($xmlres->invoice->datecrt);
+	$result['wminvid']=strval($xmlres->invoice->attributes()->id);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X2. ОТПРАВКА ПЕРЕВОДА.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'date'=>дата и время]
+function _WMXML2 ($tranid,$purse,$rpurse,$amount,$period,$pcode,$desc,$wminvid,$onlyauth) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$desc=trim($desc); $pcode=trim($pcode); $amount=floatval($amount);
+	$rsign=_GetSign($reqn.$tranid.$purse.$rpurse.$amount.$period.$pcode.$desc.$wminvid);
+	$pcode=htmlspecialchars($pcode, ENT_QUOTES);
+	$desc=htmlspecialchars($desc, ENT_QUOTES);
+	$pcode=iconv("CP1251", "UTF-8", $pcode);
+	$desc=iconv("CP1251", "UTF-8", $desc);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<trans>
+			<tranid>$tranid</tranid>
+			<pursesrc>$purse</pursesrc>
+			<pursedest>$rpurse</pursedest>
+			<amount>$amount</amount>
+			<period>$period</period>
+			<pcode>$pcode</pcode>
+			<desc>$desc</desc>
+			<wminvid>$wminvid</wminvid>
+			<onlyauth>$onlyauth</onlyauth>
+		</trans>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[2], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['date']=strval($xmlres->operation->datecrt);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X3. ПОЛУЧЕНИЕ ИСТОРИИ ОПЕРАЦИЙ.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'cnt'=>количество операций в выборке, 'operations'=>массив с операциями]
+function _WMXML3 ($purse,$wmtranid,$tranid,$wminvid,$orderid,$datestart,$datefinish) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($purse.$reqn);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<getoperations>
+			<purse>$purse</purse>
+			<wmtranid>$wmtranid</wmtranid>
+			<tranid>$tranid</tranid>
+			<wminvid>$wminvid</wminvid>
+			<orderid>$orderid</orderid>
+			<datestart>$datestart</datestart>
+			<datefinish>$datefinish</datefinish>
+		</getoperations>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[3], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['cnt']=strval($xmlres->operations->attributes()->cnt);
+	if($result['cnt']>0) {
+		// В элементе $result['operations'] формируем элементы, каждый из которых является
+		// массивом с параметрами операции
+		foreach ($xmlres->operations->operation as $operation) {
+			// определяем тип операции (входящая, исходящая)
+			// и кошелек корреспондента
+			$pursesrc=strval($operation->pursesrc);
+			$pursedest=strval($operation->pursedest);
+			if($pursesrc==$purse) {
+				$type="out"; $corrpurse=$pursedest;
+			} elseif($pursedest==$purse) {
+				$type="in"; $corrpurse=$pursesrc;
+			}
+			$result['operations'][strval($operation->attributes()->id)] = Array
+				(
+				'tranid'=>strval($operation->tranid),
+			 	'wminvid'=>strval($operation->wminvid),
+				'orderid'=>strval($operation->orderid),
+				'type'=>$type,
+				'corrpurse'=>$corrpurse,
+				'corrwmid'=>strval($operation->corrwm),
+				'amount'=>floatval($operation->amount),
+				'comiss'=>floatval($operation->comiss),
+				'rest'=>floatval($operation->rest),
+				'protection'=>strval($operation->opertype),
+				'desc'=>iconv("UTF-8", "CP1251", strval($operation->desc)),
+				'datecrt'=>strval($operation->datecrt)
+				);
+		}
+	}
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X4. ПРОВЕРКА ВЫПИСАННЫХ СЧЕТОВ.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'cnt'=>количество счетов вошедших в выборку, 'invoices'=>массив со счетами]
+function _WMXML4 ($purse,$wminvid,$orderid,$datestart,$datefinish) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($purse.$reqn);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<getoutinvoices>
+			<purse>$purse</purse>
+			<wminvid>$wminvid</wminvid>
+			<orderid>$orderid</orderid>
+			<datestart>$datestart</datestart>
+			<datefinish>$datefinish</datefinish>
+		</getoutinvoices>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[4], $xml);
+	//echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['cnt']=strval($xmlres->outinvoices->attributes()->cnt);
+	if($result['cnt']>0) {
+		// В элементе $result['invoices'] формируем массив [номер счета в WM] = состояние оплаты
+		foreach ($xmlres->outinvoices->outinvoice as $invoice) {
+			$wminvid=strval($invoice->attributes()->id);
+			$state=strval($invoice->state);
+			$result['invoices'][$wminvid]=$state;
+		}
+	}
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X6. ОТПРАВКА СООБЩЕНИЯ.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'date'=>дата и время]
+function _WMXML6 ($wmid,$msg,$subj) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$msg=trim($msg); $subj=trim($subj);
+	$msg=str_replace ("\r", "", $msg);
+	$rsign=_GetSign($wmid.$reqn.$msg.$subj);
+	$msg=htmlspecialchars($msg, ENT_QUOTES);
+	$subj=htmlspecialchars($subj, ENT_QUOTES);
+	$msg=iconv("CP1251", "UTF-8", $msg);
+	$subj=iconv("CP1251", "UTF-8", $subj);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<message>
+			<receiverwmid>$wmid</receiverwmid>
+			<msgsubj>$subj</msgsubj>
+			<msgtext>$msg</msgtext>
+		</message>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[6], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['date']=strval($xmlres->message->datecrt);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X7. ПРОВЕРКА ПОДПИСИ
+// На входе: WMID, чью подпись нужно проверить; исходная строка; подпись исходной строки
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'res'=>результат проверки (yes\no)]
+function _WMXML7 ($wmid,$string,$sign) {
+	global $Global_WMID, $XML_addr;
+	$rsign=_GetSign($Global_WMID.$wmid.$string.$sign);
+	$xml="
+	<w3s.request>
+		<wmid>$Global_WMID</wmid> 
+		<sign>$rsign</sign>
+		<testsign>
+			<wmid>$wmid</wmid>
+			<plan><![CDATA[$string]]></plan>
+			<sign>$sign</sign>
+		</testsign>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[7], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+	} else {
+		$result['retval']=strval($xmlres->retval);
+		$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+		$result['res']=strval($xmlres->testsign->res);
+	}
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X8. ОПРЕДЕЛЕНИЕ ПРИНАДЛЕЖНОСТИ КОШЕЛЬКА.
+// На выходе: массив ['wmid'=>wmid, 'purse'=>кошелек, 'avaliable'=>запрет на входящие переводы, 'newattst'=>аттестат, 'merchant_active_mode'=>включенность кошелька в WM Merchant, 'merchant_allow_cashier'=>включенность опции *прием из терминалов* в WM Merchant, 'messpermiit'=>запрет на входящие сообщения от НЕ корреспондентов, 'invpermit'=>запрет на входящие счета от НЕ коррексондентов, 'paypermit'=>запрет на входящие переводы от НЕ корреспондентов, 'retval'=>код выполнения, 'retdesc'=>описание результата]
+function _WMXML8 ($wmid,$purse) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($wmid.$purse);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<testwmpurse>
+			<wmid>$wmid</wmid>
+			<purse>$purse</purse>
+		</testwmpurse>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[8], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['wmid']=strval($xmlres->testwmpurse->wmid);
+	$result['purse']=strval($xmlres->testwmpurse->purse);
+	$result['avaliable']=strval($xmlres->testwmpurse->wmid->attributes()->available);
+	$result['newattst']=strval($xmlres->testwmpurse->wmid->attributes()->newattst);
+	$result['merchant_active_mode']=strval($xmlres->testwmpurse->purse->attributes()->merchant_active_mode);
+	$result['merchant_allow_cashier']=strval($xmlres->testwmpurse->purse->attributes()->merchant_allow_cashier);
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$themselfcorrstate=decbin(strval($xmlres->testwmpurse->wmid->attributes()->themselfcorrstate));
+	if(strlen($themselfcorrstate)<2) $messpermit=0; else $messpermit=substr($themselfcorrstate, -2, 1);
+	if(strlen($themselfcorrstate)<3) $invpermit=0; else $invpermit=substr($themselfcorrstate, -3, 1);
+	if(strlen($themselfcorrstate)<4) $paypermit=0; else $paypermit=substr($themselfcorrstate, -4, 1);
+	$result['messpermit']=$messpermit;
+	$result['invpermit']=$invpermit;
+	$result['paypermit']=$paypermit;
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X9. ПОЛУЧЕНИЕ БАЛАНСОВ
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'purses'=>массив балансов]
+function _WMXML9 () {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($Global_WMID.$reqn);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<getpurses>
+			<wmid>$Global_WMID</wmid>
+		</getpurses>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[9], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	if($result['retval']==0 && $result['retval']!==false) {
+		// Формируем массив [номер кошелька] = баланс
+		foreach ($xmlres->purses->purse as $purse) {
+			$pursename=strval($purse->pursename);
+			$amount=floatval($purse->amount);
+			$result['purses'][$pursename]=$amount;
+		}
+	}
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X11. ПОЛУЧЕНИЕ ИНФОРМАЦИИ ИЗ АТТЕСТАТА.
+// На выходе: массив ['att'=>код аттестата, 'recalled'=>флаг отзыва аттестата, 'retval'=>код выполнения, 'retdesc'=>описание результата, 'wmids'=>список прикрепленных к аттестату WMID]
+function _WMXML11 ($wmid) {
+	global $XML_addr;
+	$xml="
+	<request>
+		<wmid></wmid>
+		<passportwmid>$wmid</passportwmid>				
+		<sign></sign>
+		<params>
+			<dict>1</dict>
+			<info>1</info>
+			<mode>0</mode>
+		</params>
+	</request>";
+	$resxml=_GetAnswer($XML_addr[11], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+	  $result['att']=0;
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	if(!$xmlres->certinfo->attestat->row) {
+		$result['att']=0; 
+		$result['retval']=1001;
+		$result['retdesc']="Информация об аттестате не получена. Возможно, неверно указан WMID.";
+		return $result;
+	}
+	$result['att']=strval($xmlres->certinfo->attestat->row->attributes()->tid);
+	$result['recalled']=strval($xmlres->certinfo->attestat->row->attributes()->recalled);
+	$result['retval']=strval($xmlres->attributes()->retval);
+	foreach ($xmlres->certinfo->wmids->row as $row) {
+		$wmids[]=strval($row->attributes()->wmid);
+	}
+	$result['wmids']=$wmids;
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X14. БЕСКОМИССИОННЫЙ ВОЗВРАТ.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'date'=>дата и время, 'wmtranid_ret'=>номер транзакции возврата]
+function _WMXML14 ($wmtranid,$amount,$moneybackphone) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$amount=floatval($amount);
+	$rsign=_GetSign($reqn.$wmtranid.$amount);
+	$xml="
+	<w3s.request>
+	    <reqn>$reqn</reqn>
+	    <wmid>$Global_WMID</wmid>
+	    <sign>$rsign</sign>
+	        <trans>
+	            <inwmtranid>$wmtranid</inwmtranid>
+	            <amount>$amount</amount>
+	            <moneybackphone>$moneybackphone</moneybackphone>
+	        </trans>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[14], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['wmtranid_ret']=strval($xmlres->operation->attributes()->id);
+	$result['date']=strval($xmlres->operation->datecrt);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X16. СОЗДАНИЕ КОШЕЛЬКА.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'purse'=>номер кошелька]
+function _WMXML16 ($type,$desc) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($Global_WMID.$type.$reqn);
+	$desc=trim($desc);
+	$desc=htmlspecialchars($desc, ENT_QUOTES);
+	$desc=iconv("CP1251", "UTF-8", $desc);
+	$xml="
+	<w3s.request>
+		<reqn>$reqn</reqn>
+		<wmid>$Global_WMID</wmid>
+		<sign>$rsign</sign>
+		<createpurse>
+			<wmid>$Global_WMID</wmid>
+			<pursetype>$type</pursetype>
+			<desc>$desc</desc>
+		</createpurse>
+	</w3s.request>";
+	$resxml=_GetAnswer($XML_addr[16], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['purse']=strval($xmlres->purse->pursename);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X18. ПРОВЕРКА СТАТУСА ПЛАТЕЖА WM MERCHANT
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'wmtranid'=>номер транзакции, 'date'=>дата и время транзакции, 'payer'=>кошелек плательщика, 'ip'=>IP плательщика]
+function _WMXML18 ($lmi_payment_no, $lmi_payee_purse, $wmid, $secret_key) {
+	global $XML_addr;
+	$md5=strtoupper(md5($wmid.$lmi_payee_purse.$lmi_payment_no.$secret_key));
+	$xml="
+	<merchant.request>
+		<wmid>$wmid</wmid>
+		<lmi_payee_purse>$lmi_payee_purse</lmi_payee_purse>
+		<lmi_payment_no>$lmi_payment_no</lmi_payment_no>
+		<sign></sign>
+		<md5>$md5</md5>
+		<secret_key></secret_key>
+	</merchant.request>";
+	$resxml=_GetAnswer($XML_addr[18], $xml);
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['wmtranid']=strval($xmlres->operation->attributes()->wmtransid);
+	$result['date']=strval($xmlres->operation->operdate);
+	$result['payer']=strval($xmlres->operation->pursefrom);
+	$result['ip']=strval($xmlres->operation->IPAddress);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X19. ПРОВЕРКА СООТВЕТСТВИЯ ПЕРСОНАЛЬНЫХ ДАННЫХ ВЛАДЕЛЬЦА WM-ИДЕНТИФИКАТОРА.
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'iname'=>имя, 'oname'=>отчество, 'retid'=>уникальный идентификатор ответа]
+function _WMXML19 ($type, $purse, $amount, $wmid, $passport, $fname, $iname, $bank_name, $bank_account, $card_number, $emoney_name, $emoney_id, $direction) {
+	global $Global_WMID, $XML_addr;
+	$reqn=_GetReqn();
+	$rsign=_GetSign($reqn.$type.$wmid);
+	$fname=iconv("CP1251", "UTF-8", $fname);
+	$iname=iconv("CP1251", "UTF-8", $iname);
+	$bank_name=iconv("CP1251", "UTF-8", $bank_name);
+	$emoney_name=iconv("CP1251", "UTF-8", $emoney_name);
+	$xml="
+	<passport.request>
+		<reqn>$reqn</reqn>
+		<signerwmid>$Global_WMID</signerwmid>
+		<sign>$rsign</sign>
+		<operation>
+			<type>$type</type>
+			<direction>$direction</direction>
+			<pursetype>$purse</pursetype>
+			<amount>$amount</amount>
+		</operation>
+		<userinfo>
+			<wmid>$wmid</wmid>
+			<pnomer>$passport</pnomer>
+			<fname>$fname</fname>
+			<iname>$iname</iname>
+			<bank_name>$bank_name</bank_name>
+			<bank_account>$bank_account</bank_account>
+			<card_number>$card_number</card_number>
+			<emoney_name>$emoney_name</emoney_name>
+			<emoney_id>$emoney_id</emoney_id>
+		</userinfo>
+	</passport.request>";
+	$resxml=_GetAnswer($XML_addr[19], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['iname']=iconv("UTF-8", "CP1251", strval($xmlres->userinfo->iname));
+	$result['oname']=iconv("UTF-8", "CP1251", strval($xmlres->userinfo->oname));
+	$result['retid']=strval($xmlres->retid);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X20. ПРИЕМ ПЛАТЕЖА ЧЕРЕЗ WM MERCHANT БЕЗ УХОДА С САЙТА ПРОДАВЦА
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'userdesc'=>сообщение для плательщика,
+// 'wminvoiceid'=>номер счета, 'realsmstype'=>способ подтверждения (только в шаге 1),
+// 'wmtransid'=>номер транзакции в системе (только в шаге 2), 'operdate'=>дата и время транзакции в системе (только в шаге 2),
+// 'pursefrom'=>кошелек плательщика (только в шаге 2)]
+function _WMXML20 ($step, $wmid, $lmi_payee_purse, $lmi_payment_no, $lmi_payment_amount, $lmi_payment_desc, $lmi_clientnumber, $lmi_clientnumber_type, $lmi_sms_type, $lmi_clientnumber_code, $lmi_wminvoiceid, $secret_key) {
+	global $Global_WMID, $XML_addr;
+	$step=intval($step);
+	if($step==1) {
+		$md5=strtoupper(md5($wmid.$lmi_payee_purse.$lmi_payment_no.$lmi_clientnumber.$lmi_clientnumber_type.$secret_key));
+		$lmi_payment_desc=iconv("CP1251", "UTF-8", $lmi_payment_desc);
+		$xml="
+		<merchant.request>
+			<wmid>$wmid</wmid>
+			<lmi_payee_purse>$lmi_payee_purse</lmi_payee_purse>
+			<lmi_payment_no>$lmi_payment_no</lmi_payment_no>
+			<lmi_payment_amount>$lmi_payment_amount</lmi_payment_amount>
+			<lmi_payment_desc>$lmi_payment_desc</lmi_payment_desc>
+			<lmi_clientnumber>$lmi_clientnumber</lmi_clientnumber>
+			<lmi_clientnumber_type>$lmi_clientnumber_type</lmi_clientnumber_type>
+			<lmi_sms_type>$lmi_sms_type</lmi_sms_type>
+			<secret_key></secret_key>
+			<sign></sign>
+			<md5>$md5</md5>
+		</merchant.request>";
+		$resxml=_GetAnswer($XML_addr[201], $xml);
+	} elseif($step==2) {
+		$md5=strtoupper(md5($wmid.$lmi_payee_purse.$lmi_wminvoiceid.$lmi_clientnumber_code.$secret_key));
+		$xml="
+		<merchant.request>
+			<wmid>$wmid</wmid>
+			<lmi_payee_purse>$lmi_payee_purse</lmi_payee_purse>
+			<lmi_clientnumber_code>$lmi_clientnumber_code</lmi_clientnumber_code>
+			<lmi_wminvoiceid>$lmi_wminvoiceid</lmi_wminvoiceid> 
+			<secret_key></secret_key>
+			<sign></sign>
+			<md5>$md5</md5>
+		</merchant.request>";
+		$resxml=_GetAnswer($XML_addr[202], $xml);
+	}
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['userdesc']=iconv("UTF-8", "CP1251", strval($xmlres->userdesc));
+	$result['wminvoiceid']=strval($xmlres->operation->attributes()->wminvoiceid);
+	$result['realsmstype']=strval($xmlres->operation->realsmstype);
+	$result['wmtransid']=strval($xmlres->operation->attributes()->wmtransid);
+	$result['operdate']=strval($xmlres->operation->operdate);
+	$result['pursefrom']=strval($xmlres->operation->pursefrom);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X21. ПОЛУЧЕНИЕ ДОВЕРИЯ (С ПОМОЩЬЮ SMS или USSD) НА СПИСАНИЕ СРЕДСТВ
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'userdesc'=>сообщение для плательщика,
+// 'purseid'=>номер по результатам 1-го запроса (только в шаге 1), 'id' - идентификатор выданной доверенности (только на шаге 2),
+// 'realsmstype'=>способ подтверждения (только в шаге 1), 'slavepurse' - кошелек доверителя (только на шаге 2),
+// 'slavewmid' - WMID доверителя (только на шаге 2)
+function _WMXML21 ($step, $lmi_payee_purse, $lmi_day_limit, $lmi_week_limit, $lmi_month_limit, $lmi_clientnumber, $lmi_clientnumber_type, $lmi_sms_type, $lmi_purseid, $lmi_clientnumber_code, $lang) {
+	global $Global_WMID, $XML_addr;
+	$step=intval($step);
+	if(!$lang) $lang="ru-RU";
+	if($step==1) {
+		$rsign=_GetSign($Global_WMID.$lmi_payee_purse.$lmi_clientnumber.$lmi_clientnumber_type.$lmi_sms_type);
+		$xml="
+		<merchant.request>
+		    <wmid>$Global_WMID</wmid>
+		    <lmi_payee_purse>$lmi_payee_purse</lmi_payee_purse>
+		    <lmi_day_limit>$lmi_day_limit</lmi_day_limit> 
+		    <lmi_week_limit>$lmi_week_limit</lmi_week_limit> 
+		    <lmi_month_limit>$lmi_month_limit</lmi_month_limit> 
+		    <lmi_clientnumber>$lmi_clientnumber</lmi_clientnumber>
+		    <lmi_clientnumber_type>$lmi_clientnumber_type</lmi_clientnumber_type>
+		    <lmi_sms_type>$lmi_sms_type</lmi_sms_type>
+		    <sign>$rsign</sign> 
+		    <lang>$lang</lang>
+		</merchant.request>";
+		$resxml=_GetAnswer($XML_addr[211], $xml);
+		//echo $resxml;
+	} elseif($step==2) {
+		$rsign=_GetSign($Global_WMID.$lmi_purseid.$lmi_clientnumber_code);
+		$xml="
+		<merchant.request>
+		    <wmid>$Global_WMID</wmid>
+		    <lmi_purseid>$lmi_purseid</lmi_purseid>
+		    <lmi_clientnumber_code>$lmi_clientnumber_code</lmi_clientnumber_code>
+		    <sign>$rsign</sign>
+		    <lang>$lang</lang>
+		</merchant.request>";
+		$resxml=_GetAnswer($XML_addr[212], $xml);
+		//echo $resxml;
+	}
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['userdesc']=iconv("UTF-8", "CP1251", strval($xmlres->userdesc));
+	$result['purseid']=strval($xmlres->trust->attributes()->purseid);
+	$result['id']=strval($xmlres->trust->attributes()->id);
+	$result['realsmstype']=strval($xmlres->trust->realsmstype);
+	$result['slavepurse']=strval($xmlres->trust->slavepurse);
+	$result['slavewmid']=strval($xmlres->trust->slavewmid);
+	return $result;
+}
+
+
+// ИНТЕРФЕЙС X22. ФОРМИРОВАНИЕ ТИКЕТА НА ОПЛАТУ
+// На выходе: массив ['retval'=>код выполнения, 'retdesc'=>описание результата, 'transtoken'=>токен заказа]
+function _WMXML22 ($wmid, $period, $lmi_payee_purse, $lmi_payment_amount, $lmi_payment_no, $lmi_payment_desc, $secret_key) {
+	global $XML_addr;
+	$lmi_payment_desc=trim($lmi_payment_desc);
+	if (!preg_match('//u', $lmi_payment_desc)) // если $lmi_payment_desc не в UTF8
+		$lmi_payment_desc=iconv("CP1251", "UTF-8", $lmi_payment_desc); // ...переводим в UTF8
+	$lmi_payment_amount=floatval($lmi_payment_amount);
+	$lmi_payment_no=intval($lmi_payment_no);
+	$md5=strtoupper(md5($wmid.$lmi_payee_purse.$lmi_payment_no.$period.$secret_key));
+	$xml="
+	<merchant.request>
+    	<signtags>
+			<wmid>$wmid</wmid>
+			<validityperiodinhours>$period</validityperiodinhours>
+			<sign></sign>
+			<md5>$md5</md5>
+			<secret_key></secret_key>
+        </signtags>
+		<paymenttags>
+			<lmi_payee_purse>$lmi_payee_purse</lmi_payee_purse>
+			<lmi_payment_amount>$lmi_payment_amount</lmi_payment_amount>
+			<lmi_payment_no>$lmi_payment_no</lmi_payment_no>
+			<lmi_payment_desc><![CDATA[$lmi_payment_desc]]></lmi_payment_desc>
+		</paymenttags>
+	</merchant.request>";
+	$resxml=_GetAnswer($XML_addr[22], $xml);
+	// echo $resxml;
+	$xmlres = simplexml_load_string($resxml);
+	if(!$xmlres) {
+		$result['retval']=1000;
+		$result['retdesc']="Не получен XML-ответ";
+		return $result;
+	}
+	$result['retval']=strval($xmlres->retval);
+	$result['retdesc']=iconv("UTF-8", "CP1251", strval($xmlres->retdesc));
+	$result['transtoken']=strval($xmlres->transtoken);
+	return $result;
+}
+?>
